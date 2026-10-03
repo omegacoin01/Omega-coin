@@ -73,7 +73,7 @@ button,input{font:inherit}button{cursor:pointer}
 .prices{border:1px solid var(--line);border-radius:12px;margin-bottom:12px;max-height:228px;overflow:auto}
 .pr{display:flex;justify-content:space-between;width:100%;padding:11px 14px;background:transparent;border:0;border-bottom:1px solid var(--line);color:var(--text);font-size:14px}
 .pr:last-child{border-bottom:0}.pr b{color:var(--gold)}
-.msg{max-width:82%;padding:9px 12px;border-radius:14px;margin-bottom:8px;font-size:14px;word-break:break-word}
+.msg{white-space:pre-line;max-width:82%;padding:9px 12px;border-radius:14px;margin-bottom:8px;font-size:14px;word-break:break-word}
 .msg.me{margin-left:auto;background:var(--gold);color:#1a1400;border-bottom-right-radius:4px}
 .msg.mgr{background:var(--raise);border-bottom-left-radius:4px}
 .msg small{display:block;font-size:10px;opacity:.65;margin-top:3px}
@@ -84,7 +84,7 @@ button,input{font:inherit}button{cursor:pointer}
 .timer{display:flex;justify-content:space-between;align-items:center;background:var(--bg);border:1px solid var(--line);border-radius:10px;padding:10px 14px;margin-bottom:12px;font-size:13px;color:var(--muted)}
 .timer b{font-size:20px;color:var(--gold)}
 .warn{display:none;background:rgba(240,185,11,.1);border:1px solid var(--gold);color:var(--gold);border-radius:10px;padding:10px 12px;font-size:13px;margin-bottom:10px}
-.msg.sys{background:var(--bg);border:1px dashed var(--gold);max-width:92%}
+.msg.sys{background:var(--gold);color:#1a1400;max-width:84%;border-radius:14px 14px 14px 4px}
 .msg img{display:block;max-width:100%;border-radius:10px;margin-bottom:4px;cursor:pointer}
 .chat{padding:0;overflow:hidden;background:var(--bg)}
 .chatFull{display:flex;flex-direction:column;height:100%;max-width:560px;margin:0 auto}
@@ -139,7 +139,9 @@ button,input{font:inherit}button{cursor:pointer}
   <section class="card">
     <div id="heroPrice"><span class="eq">1 OMEGA COIN =</span> ₦100</div>
     <div class="heroRow"><span id="heroChange" class="muted">--</span><span id="heroDate" class="muted"></span></div>
-    <div id="chartArea"></div>
+    <div class="tabs" id="modes" style="margin:12px 0 0"><button class="tab on" data-m="rate">Line</button><button class="tab" data-m="candle">Candles</button><button class="tab" data-m="coins">Coins</button></div>
+    <div id="chartArea" style="margin-top:6px"></div>
+    <div class="note" id="cap" style="margin:4px 0 0;min-height:16px"></div>
     <div class="tabs" id="tabs">
       <button class="tab" data-r="1">1D</button><button class="tab" data-r="7">7D</button>
       <button class="tab" data-r="30">30D</button><button class="tab on" data-r="0">All</button>
@@ -317,12 +319,12 @@ function listenToRate(){
 function listenToHistory(){
   if(unsubHist)unsubHist();
   unsubHist=db.collection("rateHistory").orderBy("createdAt","desc").limit(300).onSnapshot(
-    s=>{rateHistory=s.docs.map(d=>({vol:Math.abs(Number(d.data().issued)||0),rate:Number(d.data().rate),t:d.data().createdAt&&d.data().createdAt.toMillis?d.data().createdAt.toMillis():0}))
+    s=>{rateHistory=s.docs.map(d=>({vol:Math.abs(Number(d.data().issued)||0),circ:d.data().circulation==null?null:Number(d.data().circulation),rate:Number(d.data().rate),t:d.data().createdAt&&d.data().createdAt.toMillis?d.data().createdAt.toMillis():0}))
         .filter(p=>p.rate>0&&p.t).reverse();drawChart()},
     ()=>{rateHistory=[];drawChart()})}
 
 /* ===== CHART (step chart: the rate only changes when coins are issued) ===== */
-let drawn=false;
+let drawn=false,mode="rate";
 const rangeLabel=()=>({0:"All time",1:"Past day",7:"Past 7 days",30:"Past 30 days"})[range];
 function renderSupply(){
   const el=$("supply");if(ISSUED==null){el.innerHTML="";return}
@@ -331,29 +333,34 @@ function renderSupply(){
    '</b></span><span class="muted">Next +₦100 at <b style="color:var(--text)">'+fmt(next)+'</b></span></div><div class="bar"><i style="width:'+(ISSUED%100)+'%"></i></div>'}
 let noHist=false;
 function series(){
-  const now=Date.now();noHist=!rateHistory.length;
-  const h=noHist?[{rate:RATE,t:SETAT||now-864e5}]:rateHistory;
+  const now=Date.now(),coins=mode==="coins",live=coins?ISSUED:RATE;
+  if(live==null)return null;
+  const src=coins?rateHistory.filter(p=>p.circ!=null).map(p=>({...p,rate:p.circ})):rateHistory;
+  noHist=!src.length;
+  const h=noHist?[{rate:live,t:SETAT||now-864e5}]:src;
   const from=range?now-range*864e5:h[0].t;
   const pts=h.filter(p=>p.t>=from).map(p=>({...p})),prev=h.filter(p=>p.t<from).pop();
   if(prev)pts.unshift({rate:prev.rate,t:from,vol:0});
-  pts.push({rate:RATE,t:now,vol:0,live:1});
+  pts.push({rate:live,t:now,vol:0,live:1});
   return pts.length>=2?pts:null}
 function setHero(pts,i,t){
   const price=pts?pts[i].rate:RATE;
-  $("heroPrice").innerHTML='<span class="eq">1 OMEGA COIN =</span> ₦'+fmt(price);
+  $("heroPrice").innerHTML=(mode==="coins"&&pts)?'<span class="eq">Coins in circulation</span> '+fmt(price):'<span class="eq">1 OMEGA COIN =</span> ₦'+fmt(price);
   const ch=$("heroChange"),dt=$("heroDate");
   if(!pts){ch.textContent="--";ch.className="muted";dt.textContent="";return}
   const pct=(price-pts[0].rate)/pts[0].rate*100;
   ch.textContent=pct===0?"0.00%":(pct>0?"▲ +":"▼ ")+pct.toFixed(2)+"%";ch.className=pct===0?"muted":pct>0?"up":"down";
   dt.textContent=noHist&&!t?"Current rate only so far":t?new Date(t).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}):rangeLabel()}
 function drawChart(){
-  const wrap=$("chartArea"),pts=series();
+  if(mode==="candle")return drawCandles();
+  const wrap=$("chartArea"),pts=series(),coins=mode==="coins",U=coins?"":"₦";
+  $("cap").textContent=coins?"Coins in circulation over time. The rate moves ₦100 for every 100 coins.":"";
   if(!pts){wrap.innerHTML='<div class="empty">The chart starts when the first rate is recorded.</div>';$("stats").innerHTML="";setHero(null);return}
   const n=pts.length,W=wrap.clientWidth||340,H=290,pr=62,pt=16,vh=46,pb=22,base=H-pb-vh-8,R=W-pr;
   const t0=pts[0].t,t1=pts[n-1].t,span=(t1-t0)||1,vals=pts.map(p=>p.rate);
   let mn=Math.min(...vals),mx=Math.max(...vals);const pad=((mx-mn)||mx*.1)*.2;mn-=pad;mx+=pad;
   const X=t=>(t-t0)/span*R,Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt);
-  const col=vals[n-1]>=vals[0]?"#0ecb81":"#f6465d",last=vals[n-1],ly=Y(last);
+  const col=coins?"#8b7cff":vals[n-1]>=vals[0]?"#0ecb81":"#f6465d",last=vals[n-1],ly=Y(last);
   let line="";pts.forEach((p,i)=>{const x=X(p.t).toFixed(1),y=Y(p.rate).toFixed(1);
     line+=i?"L"+x+" "+Y(pts[i-1].rate).toFixed(1)+"L"+x+" "+y:"M"+x+" "+y});
   let g="";
@@ -364,7 +371,7 @@ function drawChart(){
   for(let k=0;k<4;k++){const t=t0+span*k/3,x=X(t);
     g+='<line y1="'+pt+'" y2="'+(H-pb)+'" x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" stroke="#1a2026"/>'+
        '<text x="'+x.toFixed(1)+'" y="'+(H-6)+'" fill="#848e9c" font-size="11" text-anchor="'+(k==0?"start":k==3?"end":"middle")+'">'+new Date(t).toLocaleString([],tf)+'</text>'}
-  const vmax=Math.max(0,...pts.map(p=>p.vol||0)),bw=Math.max(3,Math.min(10,R/n*.5));
+  const vmax=coins?0:Math.max(0,...pts.map(p=>p.vol||0)),bw=Math.max(3,Math.min(10,R/n*.5));
   let vb="";if(vmax)pts.forEach(p=>{if(!p.vol)return;const h=Math.max(2,p.vol/vmax*vh);
     vb+='<rect x="'+(X(p.t)-bw/2).toFixed(1)+'" y="'+(H-pb-h).toFixed(1)+'" width="'+bw+'" height="'+h.toFixed(1)+'" rx="1.5" fill="'+col+'" opacity=".4"/>'});
   const tag=(y,v)=>'<g class="tg" transform="translate('+(R+2)+','+(y-9).toFixed(1)+')"><rect width="'+(pr-4)+'" height="18" rx="4" fill="'+col+'"/>'+
@@ -389,18 +396,60 @@ function drawChart(){
     const x=X(t),y=Y(pts[i].rate);xh.style.display="";
     $("xv").setAttribute("x1",x);$("xv").setAttribute("x2",x);$("xhz").setAttribute("y1",y);$("xhz").setAttribute("y2",y);
     $("xc").setAttribute("cx",x);$("xc").setAttribute("cy",y);ptag.innerHTML=tag(y,pts[i].rate);
-    $("t1").textContent="₦"+fmt(pts[i].rate);$("t2").textContent=new Date(t).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+    $("t1").textContent=U+fmt(pts[i].rate);$("t2").textContent=new Date(t).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
     tt.setAttribute("transform","translate("+(x+14>R-124?x-138:x+14)+","+(pt+4)+")");setHero(pts,i,t)};
   const leave=()=>{xh.style.display="none";ptag.innerHTML=tag(ly,last);setHero(pts,n-1)};
   svg.addEventListener("pointermove",move);svg.addEventListener("pointerdown",move);
   svg.addEventListener("pointerleave",leave);svg.addEventListener("pointerup",leave);
-  $("stats").innerHTML='<div><div class="label">High</div><b>₦'+fmt(Math.max(...vals))+'</b></div>'+
-    '<div><div class="label">Low</div><b>₦'+fmt(Math.min(...vals))+'</b></div>'+
-    '<div><div class="label">Start</div><b>₦'+fmt(vals[0])+'</b></div>';
+  $("stats").innerHTML='<div><div class="label">High</div><b>'+U+fmt(Math.max(...vals))+'</b></div>'+
+    '<div><div class="label">Low</div><b>'+U+fmt(Math.min(...vals))+'</b></div>'+
+    '<div><div class="label">Start</div><b>'+U+fmt(vals[0])+'</b></div>';
   setHero(pts,n-1)}
+function drawCandles(){
+  const wrap=$("chartArea");
+  if(!rateHistory.length){wrap.innerHTML='<div class="empty">The chart starts when the first rate is recorded.</div>';$("stats").innerHTML="";$("cap").textContent="";setHero(null);return}
+  const now=Date.now(),from=range?now-range*864e5:rateHistory[0].t,N=range===1?24:range===7?28:30,step=(now-from)/N;
+  let prev=(rateHistory.filter(p=>p.t<from).pop()||rateHistory[0]).rate;const cs=[];
+  for(let i=0;i<N;i++){const t0=from+i*step,t1=t0+step,inb=rateHistory.filter(p=>p.t>=t0&&p.t<t1),o=prev,c=inb.length?inb[inb.length-1].rate:o,rs=inb.map(p=>p.rate);
+    cs.push({t0,o,c,h:Math.max(o,...rs),l:Math.min(o,...rs),v:inb.reduce((a,p)=>a+p.vol,0)});prev=c}
+  const L=cs[N-1];L.c=RATE;L.h=Math.max(L.h,RATE);L.l=Math.min(L.l,RATE);
+  const hrs=step/36e5;$("cap").textContent="Each candle = "+(hrs<2?"1 hour":hrs<36?Math.round(hrs)+" hours":Math.round(hrs/24)+" days")+". Flat candles mean the rate did not change.";
+  const W=wrap.clientWidth||340,H=290,pr=62,pt=16,vh=46,pb=22,base=H-pb-vh-8,R=W-pr;
+  let mn=Math.min(...cs.map(c=>c.l)),mx=Math.max(...cs.map(c=>c.h));const pad=((mx-mn)||mx*.1)*.2;mn-=pad;mx+=pad;
+  const Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt),slot=R/N,CX=i=>(i+.5)*slot,bw=Math.max(3,Math.min(14,slot*.62));
+  const colOf=c=>c.c>c.o?"#0ecb81":c.c<c.o?"#f6465d":"#848e9c",ly=Y(RATE),lc=colOf(L);
+  let g="";
+  for(let k=0;k<5;k++){const v=mx-(mx-mn)*k/4,y=Y(v);g+='<line x1="0" x2="'+R+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="#1f252b"/>';
+    if(Math.abs(y-ly)>14)g+='<text x="'+(R+8)+'" y="'+(y+4).toFixed(1)+'" fill="#848e9c" font-size="11">'+fmt(Math.round(v))+'</text>'}
+  const tf=range===1?{hour:"2-digit",minute:"2-digit"}:{month:"short",day:"numeric"};
+  for(let k=0;k<4;k++){const x=R*k/3;g+='<line y1="'+pt+'" y2="'+(H-pb)+'" x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" stroke="#1a2026"/><text x="'+x.toFixed(1)+'" y="'+(H-6)+'" fill="#848e9c" font-size="11" text-anchor="'+(k==0?"start":k==3?"end":"middle")+'">'+new Date(from+(now-from)*k/3).toLocaleString([],tf)+'</text>'}
+  const vmax=Math.max(0,...cs.map(c=>c.v));let body="";
+  cs.forEach((c,i)=>{const x=CX(i),col=colOf(c),yt=Y(Math.max(c.o,c.c)),yb=Y(Math.min(c.o,c.c));
+    body+='<line x1="'+x+'" x2="'+x+'" y1="'+Y(c.h)+'" y2="'+Y(c.l)+'" stroke="'+col+'" stroke-width="1.5"/><rect x="'+(x-bw/2)+'" y="'+yt+'" width="'+bw+'" height="'+Math.max(2,yb-yt)+'" fill="'+col+'" rx="1"/>';
+    if(vmax&&c.v){const h=Math.max(2,c.v/vmax*vh);body+='<rect x="'+(x-bw/2)+'" y="'+(H-pb-h)+'" width="'+bw+'" height="'+h+'" fill="'+col+'" opacity=".4"/>'}});
+  const tag=(y,v,col)=>'<g transform="translate('+(R+2)+','+(y-9).toFixed(1)+')"><rect width="'+(pr-4)+'" height="18" rx="4" fill="'+col+'"/><text x="6" y="13" font-size="11" font-weight="700" fill="#0b0e11">'+fmt(Math.round(v))+'</text></g>';
+  wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'">'+g+body+'<line x1="0" x2="'+R+'" y1="'+ly+'" y2="'+ly+'" stroke="'+lc+'" stroke-dasharray="2 4" opacity=".7"/>'+tag(ly,RATE,lc)+
+    '<g id="xh" style="display:none"><line id="xv" y1="'+pt+'" y2="'+(H-pb)+'" stroke="#848e9c" stroke-dasharray="3 3"/><g id="tt"><rect width="150" height="58" rx="8" fill="#1e2329" stroke="#2b3139"/>'+
+    '<text id="t1" x="10" y="18" font-size="12" font-weight="700" fill="#eaecef"/><text id="t2" x="10" y="34" font-size="12" fill="#eaecef"/><text id="t3" x="10" y="50" font-size="11" fill="#848e9c"/></g></g></svg>';
+  const hero=i=>{const c=cs[i],pct=(c.c-cs[0].o)/cs[0].o*100,ch=$("heroChange");
+    $("heroPrice").innerHTML='<span class="eq">1 OMEGA COIN =</span> ₦'+fmt(c.c);
+    ch.textContent=pct===0?"0.00%":(pct>0?"▲ +":"▼ ")+pct.toFixed(2)+"%";ch.className=pct===0?"muted":pct>0?"up":"down";
+    $("heroDate").textContent=i===N-1?rangeLabel():new Date(c.t0).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})};
+  const svg=wrap.firstChild,xh=$("xh");
+  const move=e=>{const px=e.clientX-svg.getBoundingClientRect().left,i=Math.max(0,Math.min(N-1,Math.floor(px/slot))),c=cs[i],x=CX(i);
+    xh.style.display="";$("xv").setAttribute("x1",x);$("xv").setAttribute("x2",x);
+    $("t1").textContent="Open ₦"+fmt(c.o)+"   High ₦"+fmt(c.h);$("t2").textContent="Low ₦"+fmt(c.l)+"   Close ₦"+fmt(c.c);
+    $("t3").textContent=new Date(c.t0).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+    $("tt").setAttribute("transform","translate("+(x+12>R-150?x-162:x+12)+","+(pt+4)+")");hero(i)};
+  const leave=()=>{xh.style.display="none";hero(N-1)};
+  svg.addEventListener("pointermove",move);svg.addEventListener("pointerdown",move);svg.addEventListener("pointerleave",leave);svg.addEventListener("pointerup",leave);
+  $("stats").innerHTML='<div><div class="label">High</div><b>₦'+fmt(Math.max(...cs.map(c=>c.h)))+'</b></div><div><div class="label">Low</div><b>₦'+fmt(Math.min(...cs.map(c=>c.l)))+'</b></div><div><div class="label">Start</div><b>₦'+fmt(cs[0].o)+'</b></div>';
+  hero(N-1)}
 setInterval(()=>{if(currentUser)drawChart()},30000); /* chart keeps moving forward in time */
 $("tabs").addEventListener("click",e=>{const b=e.target.closest(".tab");if(!b)return;
-  range=+b.dataset.r;document.querySelectorAll(".tab").forEach(t=>t.classList.toggle("on",t===b));drawChart()});
+  range=+b.dataset.r;document.querySelectorAll("#tabs .tab").forEach(t=>t.classList.toggle("on",t===b));drawChart()});
+$("modes").addEventListener("click",e=>{const b=e.target.closest(".tab");if(!b)return;
+  mode=b.dataset.m;drawn=false;document.querySelectorAll("#modes .tab").forEach(t=>t.classList.toggle("on",t===b));drawChart()});
 window.addEventListener("resize",()=>{if(currentUser)drawChart()});
 
 /* ===== SESSION ===== */
@@ -419,7 +468,7 @@ auth.onAuthStateChanged(async user=>{
 const QTYS=[1,2,3,4,5,10,20,50,100,200,300,500,1000,2000];
 function renderPrices(){
   $("buyRate").textContent="Current rate: 1 OMEGA = ₦"+fmt(RATE)+". Prices follow the rate and update automatically.";
-  $("priceList").innerHTML=QTYS.map(q=>'<button class="pr" onclick="pickQty('+q+')"><span>'+fmt(q)+' OMEGA</span><b>₦'+fmt(q*RATE)+'</b></button>').join("");
+  $("priceList").innerHTML=QTYS.map(q=>'<button class="pr" onclick="pickQty('+q+')"><span>'+fmt(q)+' OMEGA</span><b>'+U+fmt(q*RATE)+'</b></button>').join("");
   updateBuyTotal()}
 function pickQty(q){$("buyAmount").value=q;updateBuyTotal()}
 function updateBuyTotal(){paidTaps=0;$("paidWarn").style.display="none";$("paidBtn").textContent="I have paid";const a=+$("buyAmount").value;$("buyTotal").textContent=a>0?fmt(a)+" OMEGA = ₦"+fmt(a*RATE):""}
@@ -454,7 +503,7 @@ async function sendPaidRequest(a){
   openChat();
   try{await postMessages([
     {from:"user",text:"I have paid ₦"+fmt(a*RATE)+" for "+fmt(a)+" OMEGA (rate ₦"+fmt(RATE)+"). User ID: "+userData.uid+"."},
-    {from:"system",text:"Automatic message: please send your payment receipt now using the camera button below. If you do not send the receipt, your payment will not be confirmed and your account will not be credited."}])}
+    {from:"system",text:"📷 Tap the camera icon below and send a photo of your payment receipt.\n⚠️ Send receipt for verification — your purchase can't be confirmed without it."}])}
   catch(e){alert(friendlyError(e))}}
 
 /* ===== WITHDRAW / SUPPORT ===== */
@@ -470,7 +519,7 @@ const chatRef=()=>db.collection("chats").doc(currentUser.uid);
 function renderChat(msgs){
   const l=$("chatList");
   l.innerHTML=msgs.length?msgs.map(m=>{
-    const cls=m.from==="user"?"me":m.from==="system"?"sys":"mgr",who=m.from==="admin"?"Account Manager · ":"";
+    const cls=m.from==="user"?"me":m.from==="system"?"sys":"mgr",who=(m.from==="admin"||m.from==="system")?"Account Manager · ":"";
     const t=new Date(m.cAt||0).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
     return'<div class="msg '+cls+'">'+(m.image?'<img src="'+esc(m.image)+'" alt="Receipt" onclick="window.open(this.src)">':"")+esc(m.text)+'<small>'+who+esc(t)+'</small></div>'}).join(""):
     '<div class="empty" style="padding:40px 10px">Say hello. The Account Manager replies here in the app.</div>';
