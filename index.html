@@ -362,12 +362,14 @@ function setHero(pts,i,t){
 function drawChart(){
   renderEvents();if(mode==="candle")return drawCandles();
   const wrap=$("chartArea"),pts=series(),coins=mode==="coins",U=coins?"":"₦";
-  $("cap").textContent=coins?"Coins in circulation over time. The rate moves ₦100 for every 100 coins.":"";
+  $("cap").textContent=coins?"Coins in circulation over time. The rate moves ₦100 for every 100 coins.":"Each change gets its own space, even when made a minute apart.";
   if(!pts){wrap.innerHTML='<div class="empty">The chart starts when the first rate is recorded.</div>';$("stats").innerHTML="";setHero(null);return}
   const n=pts.length,W=wrap.clientWidth||340,H=290,pr=62,pt=16,vh=46,pb=22,base=H-pb-vh-8,R=W-pr;
-  const t0=pts[0].t,t1=pts[n-1].t,span=(t1-t0)||1,vals=pts.map(p=>p.rate);
+  pts.forEach((p,i)=>{p.rt=p.t;p.t=i}); /* every record gets its own equal space, however close in time */
+  const t0=0,t1=n-1,vals=pts.map(p=>p.rate),slot=Math.min(R/Math.max(n-1,13),36);
+  const day=t=>new Date(t).toDateString(),lab=t=>day(t)===day(Date.now())?timeFmt(t):new Date(t).toLocaleDateString([],{month:"short",day:"numeric"});
   let mn=Math.min(...vals),mx=Math.max(...vals);const pad=((mx-mn)||mx*.1)*.2;mn-=pad;mx+=pad;
-  const X=t=>(t-t0)/span*R,Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt);
+  const X=t=>R-(t1-t)*slot,Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt);
   const col=coins?"#8b7cff":vals[n-1]>=vals[0]?"#0ecb81":"#f6465d",last=vals[n-1],ly=Y(last);
   let line="";pts.forEach((p,i)=>{const x=X(p.t).toFixed(1),y=Y(p.rate).toFixed(1);
     line+=i?"L"+x+" "+Y(pts[i-1].rate).toFixed(1)+"L"+x+" "+y:"M"+x+" "+y});
@@ -380,19 +382,18 @@ function drawChart(){
   if(!coins)pts.forEach((p,k)=>{if(!k||p.live||p.rate===pts[k-1].rate)return;
     const x=X(p.t),y=Y(p.rate),up=p.rate>pts[k-1].rate,c2=up?"#0ecb81":"#f6465d";
     mk+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="4" fill="'+c2+'" stroke="#161a1e" stroke-width="2"/>';
-    lv=(x-lx0<70)?lv+1:0;lx0=x;if(lv>2)return;
-    mk+='<text x="'+Math.max(36,Math.min(R-36,x)).toFixed(1)+'" y="'+Math.max(12,y-9-lv*13).toFixed(1)+'" font-size="10" font-weight="700" text-anchor="middle" fill="'+c2+'">'+(up?"▲ ":"▼ ")+timeFmt(p.t)+'</text>'});
-  for(let k=0;k<4;k++){const t=t0+span*k/3,x=X(t);
-    g+='<line y1="'+pt+'" y2="'+(H-pb)+'" x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" stroke="#1a2026"/>'+
-       '<text x="'+x.toFixed(1)+'" y="'+(H-6)+'" fill="#848e9c" font-size="11" text-anchor="'+(k==0?"start":k==3?"end":"middle")+'">'+new Date(t).toLocaleString([],tf)+'</text>'}
-  const vmax=coins?0:Math.max(0,...pts.map(p=>p.vol||0)),bw=Math.max(3,Math.min(10,R/n*.5));
+    lv=(x-lx0<70)?(lv+1)%3:0;lx0=x;if(n>26&&k<n-12)return;
+    mk+='<text x="'+Math.max(36,Math.min(R-36,x)).toFixed(1)+'" y="'+Math.max(12,y-9-lv*13).toFixed(1)+'" font-size="10" font-weight="700" text-anchor="middle" fill="'+c2+'">'+(up?"▲ ":"▼ ")+timeFmt(p.rt)+'</text>'});
+  [...new Set(n<=4?[...Array(n).keys()]:[0,Math.round((n-1)/3),Math.round(2*(n-1)/3),n-1])].forEach(i=>{const x=Math.max(30,Math.min(R-30,X(i)));
+    g+='<text x="'+x.toFixed(1)+'" y="'+(H-6)+'" fill="#848e9c" font-size="11" text-anchor="middle">'+lab(pts[i].rt)+'</text>'});
+  const vmax=coins?0:Math.max(0,...pts.map(p=>p.vol||0)),bw=Math.max(4,Math.min(12,slot*.5));
   let vb="";if(vmax)pts.forEach(p=>{if(!p.vol)return;const h=Math.max(2,p.vol/vmax*vh);
     vb+='<rect x="'+(X(p.t)-bw/2).toFixed(1)+'" y="'+(H-pb-h).toFixed(1)+'" width="'+bw+'" height="'+h.toFixed(1)+'" rx="1.5" fill="'+col+'" opacity=".4"/>'});
   const tag=(y,v)=>'<g class="tg" transform="translate('+(R+2)+','+(y-9).toFixed(1)+')"><rect width="'+(pr-4)+'" height="18" rx="4" fill="'+col+'"/>'+
     '<text x="6" y="13" font-size="11" font-weight="700" fill="#0b0e11">'+fmt(Math.round(v))+'</text></g>';
   wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'"><defs><linearGradient id="g" x1="0" y1="0" x2="0" y2="1">'+
     '<stop offset="0" stop-color="'+col+'" stop-opacity=".32"/><stop offset="1" stop-color="'+col+'" stop-opacity="0"/></linearGradient></defs>'+g+vb+
-    '<path d="'+line+' L'+X(t1)+' '+base+' L0 '+base+' Z" fill="url(#g)"/>'+
+    '<path d="'+line+' L'+X(t1)+' '+base+' L'+X(t0)+' '+base+' Z" fill="url(#g)"/>'+
     '<path pathLength="1" class="'+(drawn?"":"draw")+'" d="'+line+'" fill="none" stroke="'+col+'" stroke-width="2" stroke-linejoin="round"/>'+
     '<line id="pl" x1="0" x2="'+R+'" y1="'+ly+'" y2="'+ly+'" stroke="'+col+'" stroke-dasharray="2 4" opacity=".7"/>'+
     '<g id="ptag">'+tag(ly,last)+'</g>'+
@@ -406,12 +407,12 @@ function drawChart(){
   drawn=true;
   const svg=wrap.firstChild,xh=$("xh"),ptag=$("ptag"),tt=$("tt");
   const move=e=>{const px=e.clientX-svg.getBoundingClientRect().left;
-    const t=Math.max(t0,Math.min(t1,t0+px/R*span));let i=0;pts.forEach((p,k)=>{if(p.t<=t)i=k});
-    const x=X(t),y=Y(pts[i].rate);xh.style.display="";
+    const i=Math.max(0,Math.min(n-1,Math.round(t1-(R-px)/slot)));
+    const x=X(i),y=Y(pts[i].rate);xh.style.display="";
     $("xv").setAttribute("x1",x);$("xv").setAttribute("x2",x);$("xhz").setAttribute("y1",y);$("xhz").setAttribute("y2",y);
     $("xc").setAttribute("cx",x);$("xc").setAttribute("cy",y);ptag.innerHTML=tag(y,pts[i].rate);
-    $("t1").textContent=U+fmt(pts[i].rate);$("t2").textContent=new Date(t).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
-    tt.setAttribute("transform","translate("+(x+14>R-124?x-138:x+14)+","+(pt+4)+")");setHero(pts,i,t)};
+    $("t1").textContent=U+fmt(pts[i].rate);$("t2").textContent=new Date(pts[i].rt).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
+    tt.setAttribute("transform","translate("+(x+14>R-124?x-138:x+14)+","+(pt+4)+")");setHero(pts,i,pts[i].rt)};
   const leave=()=>{xh.style.display="none";ptag.innerHTML=tag(ly,last);setHero(pts,n-1)};
   svg.addEventListener("pointermove",move);svg.addEventListener("pointerdown",move);
   svg.addEventListener("pointerleave",leave);svg.addEventListener("pointerup",leave);
@@ -441,7 +442,7 @@ function drawCandles(){
   const W=wrap.clientWidth||340,H=290,pr=62,pt=16,vh=46,pb=22,base=H-pb-vh-8,R=W-pr;
   let mn=Math.min(...vis.map(c=>c.l),RATE),mx=Math.max(...vis.map(c=>c.h),RATE);
   const pad=((mx-mn)||mx*.1)*.2;mn=Math.max(0,mn-pad);mx+=pad;
-  const Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt),slot=Math.min(R/Math.max(N,12),40),x0=R-N*slot,CX=i=>x0+(i+.5)*slot,bw=Math.max(4,Math.min(18,slot*.6));
+  const Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt),slot=Math.min(R/Math.max(N,14),28),x0=R-N*slot,CX=i=>x0+(i+.5)*slot,bw=Math.max(5,Math.min(14,slot*.5));
   const colOf=c=>c.c>c.o?"#0ecb81":c.c<c.o?"#f6465d":"#848e9c",ly=Y(RATE),lc=colOf(vis[N-1]);
   const day=t=>new Date(t).toDateString(),lab=t=>day(t)===day(now)?timeFmt(t):new Date(t).toLocaleDateString([],{month:"short",day:"numeric"});
   let g="";
