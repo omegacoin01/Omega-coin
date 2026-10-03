@@ -94,6 +94,11 @@ button,input{font:inherit}button{cursor:pointer}
 #chatList{flex:1;overflow:auto;padding:14px}
 .chatBar{padding:10px 14px calc(10px + env(safe-area-inset-bottom,0px));border-top:1px solid var(--line);background:var(--panel)}
 .chatBar .r{display:flex;gap:8px;align-items:center}
+.rb{display:none;border-radius:10px;padding:9px 12px;font-size:13px;font-weight:600;margin-top:10px}
+.rb.up{background:rgba(14,203,129,.12);border:1px solid var(--up);color:var(--up)}
+.rb.down{background:rgba(246,70,93,.12);border:1px solid var(--down);color:var(--down)}
+.ev{display:flex;justify-content:space-between;gap:10px;padding:9px 0;border-bottom:1px solid var(--line);font-size:13px;font-weight:600}
+.ev:last-child{border-bottom:0}
 .footer{text-align:center;color:var(--muted);font-size:11px;padding-top:8px}
 
 /* modals */
@@ -140,11 +145,13 @@ button,input{font:inherit}button{cursor:pointer}
   <section class="card">
     <div id="heroPrice"><span class="eq">1 OMEGA COIN =</span> ₦100</div>
     <div class="heroRow"><span id="heroChange" class="muted">--</span><span id="heroDate" class="muted"></span></div>
+    <div class="rb" id="riseBanner" role="status"></div>
     <div class="tabs" id="modes" style="margin:12px 0 0"><button class="tab on" data-m="rate">Line</button><button class="tab" data-m="candle">Candles</button><button class="tab" data-m="coins">Coins</button></div>
     <div id="chartArea" style="margin-top:6px"></div>
     <div class="note" id="cap" style="margin:4px 0 0;min-height:16px"></div>
+    <div id="events"></div>
     <div class="tabs" id="tabs">
-      <button class="tab" data-r="1">1D</button><button class="tab" data-r="7">7D</button>
+      <button class="tab" data-r="0.0416667">1H</button><button class="tab" data-r="1">1D</button><button class="tab" data-r="7">7D</button>
       <button class="tab" data-r="30">30D</button><button class="tab on" data-r="0">All</button>
     </div>
     <div class="stats" id="stats"></div>
@@ -314,7 +321,7 @@ function renderUser(){
 function listenToRate(){
   if(unsubRate)unsubRate();
   unsubRate=db.collection("settings").doc("omxRate").onSnapshot(
-    s=>{const r=s.exists?Number(s.data().rate):NaN,i=s.exists?Number(s.data().totalIssued):NaN;RATE=(Number.isFinite(r)&&r>0)?r:DEFAULT_RATE;ISSUED=Number.isFinite(i)?i:null;SETAT=s.exists&&s.data().updatedAt&&s.data().updatedAt.toMillis?s.data().updatedAt.toMillis():0;renderUser();renderSupply();renderPrices();drawChart()},
+    s=>{const r=s.exists?Number(s.data().rate):NaN,i=s.exists?Number(s.data().totalIssued):NaN;RATE=(Number.isFinite(r)&&r>0)?r:DEFAULT_RATE;if(prevRate!=null&&RATE!==prevRate)announce(prevRate,RATE);prevRate=RATE;ISSUED=Number.isFinite(i)?i:null;SETAT=s.exists&&s.data().updatedAt&&s.data().updatedAt.toMillis?s.data().updatedAt.toMillis():0;renderUser();renderSupply();renderPrices();drawChart()},
     ()=>{RATE=DEFAULT_RATE;drawChart()})}
 /* Real history: docs in "rateHistory" => { rate:number, createdAt:timestamp } */
 function listenToHistory(){
@@ -326,7 +333,7 @@ function listenToHistory(){
 
 /* ===== CHART (step chart: the rate only changes when coins are issued) ===== */
 let drawn=false,mode="rate";
-const rangeLabel=()=>({0:"All time",1:"Past day",7:"Past 7 days",30:"Past 30 days"})[range];
+const rangeLabel=()=>({0:"All time",0.0416667:"Past hour",1:"Past day",7:"Past 7 days",30:"Past 30 days"})[range];
 function renderSupply(){
   const el=$("supply");if(ISSUED==null){el.innerHTML="";return}
   const next=(Math.floor(ISSUED/100)+1)*100;
@@ -353,7 +360,7 @@ function setHero(pts,i,t){
   ch.textContent=pct===0?"0.00%":(pct>0?"▲ +":"▼ ")+pct.toFixed(2)+"%";ch.className=pct===0?"muted":pct>0?"up":"down";
   dt.textContent=noHist&&!t?"Current rate only so far":t?new Date(t).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"}):rangeLabel()}
 function drawChart(){
-  if(mode==="candle")return drawCandles();
+  renderEvents();if(mode==="candle")return drawCandles();
   const wrap=$("chartArea"),pts=series(),coins=mode==="coins",U=coins?"":"₦";
   $("cap").textContent=coins?"Coins in circulation over time. The rate moves ₦100 for every 100 coins.":"";
   if(!pts){wrap.innerHTML='<div class="empty">The chart starts when the first rate is recorded.</div>';$("stats").innerHTML="";setHero(null);return}
@@ -368,7 +375,13 @@ function drawChart(){
   for(let k=0;k<5;k++){const v=mx-(mx-mn)*k/4,y=Y(v);
     g+='<line x1="0" x2="'+R+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="#1f252b"/>';
     if(Math.abs(y-ly)>14)g+='<text x="'+(R+8)+'" y="'+(y+4).toFixed(1)+'" fill="#848e9c" font-size="11">'+fmt(Math.round(v))+'</text>'}
-  const tf=range===1?{hour:"2-digit",minute:"2-digit"}:{month:"short",day:"numeric"};
+  const tf=range<=1?{hour:"2-digit",minute:"2-digit"}:{month:"short",day:"numeric"};
+  let mk="",lx0=-99,lv=0;
+  if(!coins)pts.forEach((p,k)=>{if(!k||p.live||p.rate===pts[k-1].rate)return;
+    const x=X(p.t),y=Y(p.rate),up=p.rate>pts[k-1].rate,c2=up?"#0ecb81":"#f6465d";
+    mk+='<circle cx="'+x.toFixed(1)+'" cy="'+y.toFixed(1)+'" r="4" fill="'+c2+'" stroke="#161a1e" stroke-width="2"/>';
+    lv=(x-lx0<70)?lv+1:0;lx0=x;if(lv>2)return;
+    mk+='<text x="'+Math.max(36,Math.min(R-36,x)).toFixed(1)+'" y="'+Math.max(12,y-9-lv*13).toFixed(1)+'" font-size="10" font-weight="700" text-anchor="middle" fill="'+c2+'">'+(up?"▲ ":"▼ ")+timeFmt(p.t)+'</text>'});
   for(let k=0;k<4;k++){const t=t0+span*k/3,x=X(t);
     g+='<line y1="'+pt+'" y2="'+(H-pb)+'" x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" stroke="#1a2026"/>'+
        '<text x="'+x.toFixed(1)+'" y="'+(H-6)+'" fill="#848e9c" font-size="11" text-anchor="'+(k==0?"start":k==3?"end":"middle")+'">'+new Date(t).toLocaleString([],tf)+'</text>'}
@@ -388,7 +401,7 @@ function drawChart(){
     '<circle id="xc" r="5" fill="'+col+'" stroke="#161a1e" stroke-width="2"/>'+
     '<g id="tt"><rect width="124" height="42" rx="8" fill="#1e2329" stroke="#2b3139"/>'+
     '<text id="t1" x="10" y="18" font-size="13" font-weight="700" fill="#eaecef"/><text id="t2" x="10" y="34" font-size="11" fill="#848e9c"/></g></g>'+
-    '<circle class="pulse" cx="'+X(t1)+'" cy="'+ly+'" r="4" fill="'+col+'"/>'+
+    mk+'<circle class="pulse" cx="'+X(t1)+'" cy="'+ly+'" r="4" fill="'+col+'"/>'+
     '<circle cx="'+X(t1)+'" cy="'+ly+'" r="4" fill="'+col+'" stroke="#161a1e" stroke-width="2"/></svg>';
   drawn=true;
   const svg=wrap.firstChild,xh=$("xh"),ptag=$("ptag"),tt=$("tt");
@@ -406,6 +419,18 @@ function drawChart(){
     '<div><div class="label">Low</div><b>'+U+fmt(Math.min(...vals))+'</b></div>'+
     '<div><div class="label">Start</div><b>'+U+fmt(vals[0])+'</b></div>';
   setHero(pts,n-1)}
+let prevRate=null,bannerT=null;
+const timeFmt=t=>new Date(t).toLocaleTimeString([],{hour:"numeric",minute:"2-digit"});
+function announce(from,to){
+  const b=$("riseBanner"),up=to>from;b.className="rb "+(up?"up":"down");b.style.display="block";
+  b.textContent=(up?"▲ Omega rose from ₦":"▼ Omega fell from ₦")+fmt(from)+" to ₦"+fmt(to)+" at "+timeFmt(Date.now());
+  clearTimeout(bannerT);bannerT=setTimeout(()=>{b.style.display="none"},10000)}
+function renderEvents(){
+  const el=$("events");let prev=100;const ev=[];
+  rateHistory.forEach(p=>{if(p.rate!==prev)ev.push({t:p.t,a:prev,b:p.rate});prev=p.rate});
+  if(!ev.length){el.innerHTML="";return}
+  el.innerHTML='<div class="label" style="margin:14px 0 2px">Recent rate changes</div>'+ev.slice(-6).reverse().map(e=>{const up=e.b>e.a;
+    return'<div class="ev"><span class="'+(up?"up":"down")+'">'+(up?"▲ ":"▼ ")+"₦"+fmt(e.a)+" → ₦"+fmt(e.b)+'</span><span class="muted">'+timeFmt(e.t)+" · "+new Date(e.t).toLocaleDateString([],{month:"short",day:"numeric"})+'</span></div>'}).join("")}
 function drawCandles(){
   const wrap=$("chartArea");
   if(!rateHistory.length){wrap.innerHTML='<div class="empty">The chart starts when the first rate is recorded.</div>';$("stats").innerHTML="";$("cap").textContent="";setHero(null);return}
@@ -414,7 +439,7 @@ function drawCandles(){
   for(let i=0;i<N;i++){const t0=from+i*step,t1=t0+step,inb=rateHistory.filter(p=>p.t>=t0&&p.t<t1),o=prev,c=inb.length?inb[inb.length-1].rate:o,rs=inb.map(p=>p.rate);
     cs.push({t0,o,c,h:Math.max(o,...rs),l:Math.min(o,...rs),v:inb.reduce((a,p)=>a+p.vol,0)});prev=c}
   const L=cs[N-1];L.c=RATE;L.h=Math.max(L.h,RATE);L.l=Math.min(L.l,RATE);
-  const hrs=step/36e5;$("cap").textContent="Each candle = "+(hrs<2?"1 hour":hrs<36?Math.round(hrs)+" hours":Math.round(hrs/24)+" days")+". Flat candles mean the rate did not change.";
+  const hrs=step/36e5;$("cap").textContent="Each candle = "+(hrs<1?Math.round(hrs*60)+" minutes":hrs<2?"1 hour":hrs<36?Math.round(hrs)+" hours":Math.round(hrs/24)+" days")+". Flat candles mean the rate did not change.";
   const W=wrap.clientWidth||340,H=290,pr=62,pt=16,vh=46,pb=22,base=H-pb-vh-8,R=W-pr;
   let mn=Math.min(...cs.map(c=>c.l)),mx=Math.max(...cs.map(c=>c.h));const pad=((mx-mn)||mx*.1)*.2;mn-=pad;mx+=pad;
   const Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt),slot=R/N,CX=i=>(i+.5)*slot,bw=Math.max(3,Math.min(14,slot*.62));
@@ -422,7 +447,7 @@ function drawCandles(){
   let g="";
   for(let k=0;k<5;k++){const v=mx-(mx-mn)*k/4,y=Y(v);g+='<line x1="0" x2="'+R+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="#1f252b"/>';
     if(Math.abs(y-ly)>14)g+='<text x="'+(R+8)+'" y="'+(y+4).toFixed(1)+'" fill="#848e9c" font-size="11">'+fmt(Math.round(v))+'</text>'}
-  const tf=range===1?{hour:"2-digit",minute:"2-digit"}:{month:"short",day:"numeric"};
+  const tf=range<=1?{hour:"2-digit",minute:"2-digit"}:{month:"short",day:"numeric"};
   for(let k=0;k<4;k++){const x=R*k/3;g+='<line y1="'+pt+'" y2="'+(H-pb)+'" x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" stroke="#1a2026"/><text x="'+x.toFixed(1)+'" y="'+(H-6)+'" fill="#848e9c" font-size="11" text-anchor="'+(k==0?"start":k==3?"end":"middle")+'">'+new Date(from+(now-from)*k/3).toLocaleString([],tf)+'</text>'}
   const vmax=Math.max(0,...cs.map(c=>c.v));let body="";
   cs.forEach((c,i)=>{const x=CX(i),col=colOf(c),yt=Y(Math.max(c.o,c.c)),yb=Y(Math.min(c.o,c.c));
