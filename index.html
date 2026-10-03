@@ -481,13 +481,13 @@ function openChat(prefill){
   $("chatModal").style.display="block";$("chatInput").value=prefill||"";
   if(unsubChat)unsubChat();
   unsubChat=chatRef().collection("messages").orderBy("cAt","asc").limit(150).onSnapshot(
-    s=>renderChat(s.docs.map(d=>d.data())),
+    s=>renderChat(s.docs.map(d=>d.data()).filter(m=>(m.cAt||0)>Date.now()-1728e5)),
     ()=>{$("chatList").innerHTML='<div class="empty">Could not load messages. Try again.</div>'})}
 async function postMessages(list){
   const base=Date.now(),b=db.batch(),last=list.filter(m=>m.from==="user").pop();
   b.set(chatRef(),{userId:userData.uid,phone:userData.phone||"",lastText:last?(last.image?"📷 Receipt":last.text):"",
     updatedAt:firebase.firestore.FieldValue.serverTimestamp(),unreadForAdmin:true},{merge:true});
-  list.forEach((m,i)=>b.set(chatRef().collection("messages").doc(),{...m,uid:userData.uid,cAt:base+i}));
+  list.forEach((m,i)=>b.set(chatRef().collection("messages").doc(),{...m,uid:userData.uid,cAt:base+i,expireAt:new Date(base+1728e5)}));
   await b.commit()}
 async function sendChat(){
   const inp=$("chatInput"),text=inp.value.trim().slice(0,500);if(!text)return;
