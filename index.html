@@ -432,44 +432,45 @@ function renderEvents(){
   el.innerHTML='<div class="label" style="margin:14px 0 2px">Recent rate changes</div>'+ev.slice(-6).reverse().map(e=>{const up=e.b>e.a;
     return'<div class="ev"><span class="'+(up?"up":"down")+'">'+(up?"▲ ":"▼ ")+"₦"+fmt(e.a)+" → ₦"+fmt(e.b)+'</span><span class="muted">'+timeFmt(e.t)+" · "+new Date(e.t).toLocaleDateString([],{month:"short",day:"numeric"})+'</span></div>'}).join("")}
 function drawCandles(){
-  const wrap=$("chartArea");
-  if(!rateHistory.length){wrap.innerHTML='<div class="empty">The chart starts when the first rate is recorded.</div>';$("stats").innerHTML="";$("cap").textContent="";setHero(null);return}
-  const now=Date.now(),from=range?now-range*864e5:rateHistory[0].t,N=range===1?24:range===7?28:30,step=(now-from)/N;
-  let prev=(rateHistory.filter(p=>p.t<from).pop()||rateHistory[0]).rate;const cs=[];
-  for(let i=0;i<N;i++){const t0=from+i*step,t1=t0+step,inb=rateHistory.filter(p=>p.t>=t0&&p.t<t1),o=prev,c=inb.length?inb[inb.length-1].rate:o,rs=inb.map(p=>p.rate);
-    cs.push({t0,o,c,h:Math.max(o,...rs),l:Math.min(o,...rs),v:inb.reduce((a,p)=>a+p.vol,0)});prev=c}
-  const L=cs[N-1];L.c=RATE;L.h=Math.max(L.h,RATE);L.l=Math.min(L.l,RATE);
-  const hrs=step/36e5;$("cap").textContent="Each candle = "+(hrs<1?Math.round(hrs*60)+" minutes":hrs<2?"1 hour":hrs<36?Math.round(hrs)+" hours":Math.round(hrs/24)+" days")+". Flat candles mean the rate did not change.";
+  const wrap=$("chartArea"),now=Date.now(),from=range?now-range*864e5:0;
+  let prev=100;const cs=[];
+  rateHistory.forEach(p=>{const o=prev;prev=p.rate;if(p.t>=from)cs.push({t:p.t,o,c:p.rate,h:Math.max(o,p.rate),l:Math.min(o,p.rate),v:p.vol||0})});
+  const vis=cs.slice(-40),N=vis.length;
+  if(!N){wrap.innerHTML='<div class="empty">No rate changes in this period.</div>';$("stats").innerHTML="";$("cap").textContent="";setHero(null);return}
+  $("cap").textContent="Each candle is one admin add or remove. Green = rate rose, red = fell, grey = coins moved but the rate stayed the same.";
   const W=wrap.clientWidth||340,H=290,pr=62,pt=16,vh=46,pb=22,base=H-pb-vh-8,R=W-pr;
-  let mn=Math.min(...cs.map(c=>c.l)),mx=Math.max(...cs.map(c=>c.h));const pad=((mx-mn)||mx*.1)*.2;mn-=pad;mx+=pad;
-  const Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt),slot=R/N,CX=i=>(i+.5)*slot,bw=Math.max(3,Math.min(14,slot*.62));
-  const colOf=c=>c.c>c.o?"#0ecb81":c.c<c.o?"#f6465d":"#848e9c",ly=Y(RATE),lc=colOf(L);
+  let mn=Math.min(...vis.map(c=>c.l),RATE),mx=Math.max(...vis.map(c=>c.h),RATE);
+  const pad=((mx-mn)||mx*.1)*.2;mn=Math.max(0,mn-pad);mx+=pad;
+  const Y=v=>pt+(1-(v-mn)/(mx-mn))*(base-pt),slot=Math.min(R/Math.max(N,12),40),x0=R-N*slot,CX=i=>x0+(i+.5)*slot,bw=Math.max(4,Math.min(18,slot*.6));
+  const colOf=c=>c.c>c.o?"#0ecb81":c.c<c.o?"#f6465d":"#848e9c",ly=Y(RATE),lc=colOf(vis[N-1]);
+  const day=t=>new Date(t).toDateString(),lab=t=>day(t)===day(now)?timeFmt(t):new Date(t).toLocaleDateString([],{month:"short",day:"numeric"});
   let g="";
   for(let k=0;k<5;k++){const v=mx-(mx-mn)*k/4,y=Y(v);g+='<line x1="0" x2="'+R+'" y1="'+y.toFixed(1)+'" y2="'+y.toFixed(1)+'" stroke="#1f252b"/>';
     if(Math.abs(y-ly)>14)g+='<text x="'+(R+8)+'" y="'+(y+4).toFixed(1)+'" fill="#848e9c" font-size="11">'+fmt(Math.round(v))+'</text>'}
-  const tf=range<=1?{hour:"2-digit",minute:"2-digit"}:{month:"short",day:"numeric"};
-  for(let k=0;k<4;k++){const x=R*k/3;g+='<line y1="'+pt+'" y2="'+(H-pb)+'" x1="'+x.toFixed(1)+'" x2="'+x.toFixed(1)+'" stroke="#1a2026"/><text x="'+x.toFixed(1)+'" y="'+(H-6)+'" fill="#848e9c" font-size="11" text-anchor="'+(k==0?"start":k==3?"end":"middle")+'">'+new Date(from+(now-from)*k/3).toLocaleString([],tf)+'</text>'}
-  const vmax=Math.max(0,...cs.map(c=>c.v));let body="";
-  cs.forEach((c,i)=>{const x=CX(i),col=colOf(c),yt=Y(Math.max(c.o,c.c)),yb=Y(Math.min(c.o,c.c));
-    body+='<line x1="'+x+'" x2="'+x+'" y1="'+Y(c.h)+'" y2="'+Y(c.l)+'" stroke="'+col+'" stroke-width="1.5"/><rect x="'+(x-bw/2)+'" y="'+yt+'" width="'+bw+'" height="'+Math.max(2,yb-yt)+'" fill="'+col+'" rx="1"/>';
-    if(vmax&&c.v){const h=Math.max(2,c.v/vmax*vh);body+='<rect x="'+(x-bw/2)+'" y="'+(H-pb-h)+'" width="'+bw+'" height="'+h+'" fill="'+col+'" opacity=".4"/>'}});
-  const tag=(y,v,col)=>'<g transform="translate('+(R+2)+','+(y-9).toFixed(1)+')"><rect width="'+(pr-4)+'" height="18" rx="4" fill="'+col+'"/><text x="6" y="13" font-size="11" font-weight="700" fill="#0b0e11">'+fmt(Math.round(v))+'</text></g>';
-  wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'">'+g+body+'<line x1="0" x2="'+R+'" y1="'+ly+'" y2="'+ly+'" stroke="'+lc+'" stroke-dasharray="2 4" opacity=".7"/>'+tag(ly,RATE,lc)+
-    '<g id="xh" style="display:none"><line id="xv" y1="'+pt+'" y2="'+(H-pb)+'" stroke="#848e9c" stroke-dasharray="3 3"/><g id="tt"><rect width="150" height="58" rx="8" fill="#1e2329" stroke="#2b3139"/>'+
-    '<text id="t1" x="10" y="18" font-size="12" font-weight="700" fill="#eaecef"/><text id="t2" x="10" y="34" font-size="12" fill="#eaecef"/><text id="t3" x="10" y="50" font-size="11" fill="#848e9c"/></g></g></svg>';
-  const hero=i=>{const c=cs[i],pct=(c.c-cs[0].o)/cs[0].o*100,ch=$("heroChange");
+  const picks=[...new Set(N<=4?[...Array(N).keys()]:[0,Math.round((N-1)/3),Math.round(2*(N-1)/3),N-1])];
+  picks.forEach(i=>{const x=Math.max(30,Math.min(R-30,CX(i)));g+='<text x="'+x.toFixed(1)+'" y="'+(H-6)+'" fill="#848e9c" font-size="11" text-anchor="middle">'+lab(vis[i].t)+'</text>'});
+  const vmax=Math.max(0,...vis.map(c=>c.v));let body="";
+  vis.forEach((c,i)=>{const x=CX(i),col=colOf(c),yt=Y(Math.max(c.o,c.c)),yb=Y(Math.min(c.o,c.c));
+    body+='<rect x="'+(x-bw/2).toFixed(1)+'" y="'+yt.toFixed(1)+'" width="'+bw+'" height="'+Math.max(3,yb-yt).toFixed(1)+'" fill="'+col+'" rx="1.5"/>';
+    if(vmax&&c.v){const h=Math.max(2,c.v/vmax*vh);body+='<rect x="'+(x-bw/2).toFixed(1)+'" y="'+(H-pb-h).toFixed(1)+'" width="'+bw+'" height="'+h.toFixed(1)+'" fill="'+col+'" opacity=".4"/>'}});
+  const tag='<g transform="translate('+(R+2)+','+(ly-9).toFixed(1)+')"><rect width="'+(pr-4)+'" height="18" rx="4" fill="'+lc+'"/><text x="6" y="13" font-size="11" font-weight="700" fill="#0b0e11">'+fmt(Math.round(RATE))+'</text></g>';
+  wrap.innerHTML='<svg viewBox="0 0 '+W+' '+H+'">'+g+body+'<line x1="0" x2="'+R+'" y1="'+ly+'" y2="'+ly+'" stroke="'+lc+'" stroke-dasharray="2 4" opacity=".7"/>'+tag+
+    '<g id="xh" style="display:none"><line id="xv" y1="'+pt+'" y2="'+(H-pb)+'" stroke="#848e9c" stroke-dasharray="3 3"/><g id="tt"><rect width="176" height="58" rx="8" fill="#1e2329" stroke="#2b3139"/>'+
+    '<text id="t1" x="10" y="18" font-size="12" font-weight="700" fill="#eaecef"/><text id="t2" x="10" y="34" font-size="11" fill="#eaecef"/><text id="t3" x="10" y="50" font-size="11" fill="#848e9c"/></g></g></svg>';
+  const dt=t=>new Date(t).toLocaleString([],{month:"short",day:"numeric",hour:"numeric",minute:"2-digit"});
+  const hero=i=>{const c=vis[i],pct=vis[0].o?(c.c-vis[0].o)/vis[0].o*100:0,ch=$("heroChange");
     $("heroPrice").innerHTML='<span class="eq">1 OMEGA COIN =</span> ₦'+fmt(c.c);
     ch.textContent=pct===0?"0.00%":(pct>0?"▲ +":"▼ ")+pct.toFixed(2)+"%";ch.className=pct===0?"muted":pct>0?"up":"down";
-    $("heroDate").textContent=i===N-1?rangeLabel():new Date(c.t0).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"})};
+    $("heroDate").textContent=i===N-1?rangeLabel():dt(c.t)};
   const svg=wrap.firstChild,xh=$("xh");
-  const move=e=>{const px=e.clientX-svg.getBoundingClientRect().left,i=Math.max(0,Math.min(N-1,Math.floor(px/slot))),c=cs[i],x=CX(i);
+  const move=e=>{const px=e.clientX-svg.getBoundingClientRect().left,i=Math.max(0,Math.min(N-1,Math.floor((px-x0)/slot))),c=vis[i],x=CX(i),d=c.c-c.o;
     xh.style.display="";$("xv").setAttribute("x1",x);$("xv").setAttribute("x2",x);
-    $("t1").textContent="Open ₦"+fmt(c.o)+"   High ₦"+fmt(c.h);$("t2").textContent="Low ₦"+fmt(c.l)+"   Close ₦"+fmt(c.c);
-    $("t3").textContent=new Date(c.t0).toLocaleString([],{month:"short",day:"numeric",hour:"2-digit",minute:"2-digit"});
-    $("tt").setAttribute("transform","translate("+(x+12>R-150?x-162:x+12)+","+(pt+4)+")");hero(i)};
+    $("t1").textContent="Open ₦"+fmt(c.o)+"   Close ₦"+fmt(c.c);
+    $("t2").textContent=(d===0?"No rate change":"Change "+(d>0?"+":"-")+"₦"+fmt(Math.abs(d)))+(c.v?"  ·  "+fmt(c.v)+" coins":"");
+    $("t3").textContent=dt(c.t);$("tt").setAttribute("transform","translate("+(x+12>R-176?x-188:x+12)+","+(pt+4)+")");hero(i)};
   const leave=()=>{xh.style.display="none";hero(N-1)};
   svg.addEventListener("pointermove",move);svg.addEventListener("pointerdown",move);svg.addEventListener("pointerleave",leave);svg.addEventListener("pointerup",leave);
-  $("stats").innerHTML='<div><div class="label">High</div><b>₦'+fmt(Math.max(...cs.map(c=>c.h)))+'</b></div><div><div class="label">Low</div><b>₦'+fmt(Math.min(...cs.map(c=>c.l)))+'</b></div><div><div class="label">Start</div><b>₦'+fmt(cs[0].o)+'</b></div>';
+  $("stats").innerHTML='<div><div class="label">High</div><b>₦'+fmt(Math.max(...vis.map(c=>c.h)))+'</b></div><div><div class="label">Low</div><b>₦'+fmt(Math.min(...vis.map(c=>c.l)))+'</b></div><div><div class="label">Start</div><b>₦'+fmt(vis[0].o)+'</b></div>';
   hero(N-1)}
 setInterval(()=>{if(currentUser)drawChart()},30000); /* chart keeps moving forward in time */
 $("tabs").addEventListener("click",e=>{const b=e.target.closest(".tab");if(!b)return;
