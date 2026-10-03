@@ -468,7 +468,7 @@ auth.onAuthStateChanged(async user=>{
 const QTYS=[1,2,3,4,5,10,20,50,100,200,300,500,1000,2000];
 function renderPrices(){
   $("buyRate").textContent="Current rate: 1 OMEGA = ₦"+fmt(RATE)+". Prices follow the rate and update automatically.";
-  $("priceList").innerHTML=QTYS.map(q=>'<button class="pr" onclick="pickQty('+q+')"><span>'+fmt(q)+' OMEGA</span><b>'+U+fmt(q*RATE)+'</b></button>').join("");
+  $("priceList").innerHTML=QTYS.map(q=>'<button class="pr" onclick="pickQty('+q+')"><span>'+fmt(q)+' OMEGA</span><b>₦'+fmt(q*RATE)+'</b></button>').join("");
   updateBuyTotal()}
 function pickQty(q){$("buyAmount").value=q;updateBuyTotal()}
 function updateBuyTotal(){paidTaps=0;$("paidWarn").style.display="none";$("paidBtn").textContent="I have paid";const a=+$("buyAmount").value;$("buyTotal").textContent=a>0?fmt(a)+" OMEGA = ₦"+fmt(a*RATE):""}
